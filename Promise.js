@@ -72,7 +72,7 @@ class Promise {
         };
 
         // 返回一个新的Promise实例
-        return new Promise((resolve, reject) => {
+        const newPromise =  new Promise((resolve, reject) => {
             // 状态为fulfilled的时候，执行onFulfilled，并传入this.value
             if (this.state === 'fulfilled') {
                 // 异步调用
@@ -84,7 +84,7 @@ class Promise {
                          */
                         const x = onFulfilled(this.value)
                         // 对返回值进行处理
-                        resolvePromise(x, resolve, reject);
+                        resolvePromise(newPromise, x, resolve, reject);
                     } catch (e) {
                         reject(e)
                     }
@@ -102,7 +102,7 @@ class Promise {
                          */
                         const x = onRejected(this.reason);
 
-                        resolvePromise(x, resolve, reject);
+                        resolvePromise(newPromise, x, resolve, reject);
                     } catch (e) {
                         reject(e)
                     }
@@ -116,7 +116,7 @@ class Promise {
                     setTimeout(() => {
                         try {
                             const x = onFulfilled(this.value);
-                            resolvePromise(x, resolve, reject);
+                            resolvePromise(newPromise, x, resolve, reject);
                         } catch (e) {
                             reject(e)
                         }
@@ -127,7 +127,7 @@ class Promise {
                     setTimeout(() => {
                         try {
                             const x = onRejected(this.reason);
-                            resolvePromise(x, resolve, reject);
+                            resolvePromise(newPromise, x, resolve, reject);
                         } catch (e) {
                             reject(e)
                         }
@@ -135,54 +135,81 @@ class Promise {
                 })
             }
         });
+
+        return newPromise;
     }
 
+    /**
+     * catch 方法
+     * @returns {Promise<object>}
+     * @param callback<function>: 处理函数
+     */
     catch(callback) {
         return this.then(null, callback);
     }
 
-    // finally(callback) {
-    //     return this.then(res => {
-    //         return Promise.resolve.resolve(callback()).then()
-    //     })
-    // }
+    /**
+     * finally 方法
+     * @returns {Promise<object>}
+     * @param callback<function>: 处理函数
+     */
+    finally(callback) {
+        return this.then(res => {
+            return Promise.resolve(callback()).then(() => res)
+        }, err => {
+            return Promise.reject(callback()).then(() => {
+                throw err
+            })
+        })
+    }
 }
 
 /**
  * resolvePromise 方法
+ * @param newPromise<object>: 新的Promise实例
  * @param x<any>: 上一个then()的返回值
  * @param resolve<function>：Promise实例的resolve方法
  * @param reject<function>：Promise实例的reject方法
  */
-function resolvePromise(x, resolve, reject) {
+function resolvePromise(newPromise, x, resolve, reject) {
+    // 循环引用报错
+    if(x === newPromise){
+        // reject报错
+        return reject(new TypeError('Chaining cycle detected for promise'));
+    }
     // 防止多次调用
     let called;
-    try {
-        if (x instanceof Promise) {   // x 为Promise实例
-            // 使用call执行then()，call的第一个参数是this，后续即then()的参数，即第二个是成功的回调方法，第三个为失败的回调函数
-            x.then(
-                res => {
+    if (x != null && (typeof x === 'object' || typeof x === 'function')) {
+        try {
+            let then = x.then;
+            // x 为Promise实例
+            if (typeof then === 'function') {
+                // 使用call执行then()，call的第一个参数是this，后续即then()的参数，即第二个是成功的回调方法，第三个为失败的回调函数
+                then.call(x, y => {
                     // 成功和失败只能调用一个
-                    if (called) return;
+                    if(called)return;
                     called = true;
                     // resolve 的结果依旧是promise实例，那就继续解析
-                    resolvePromise(res, resolve, reject);
-                },
-                err => {
+                    resolvePromise(newPromise, y, resolve, reject);
+                }, err => {
                     // 成功和失败只能调用一个
-                    if (called) return;
+                    if(called)return;
                     called = true;
                     // 失败了就直接返回reject报错
                     reject(err);
                 })
-        } else {
-            // x 为普通的对象或方法，直接返回
-            resolve(x);
+            } else {
+                // x 为普通的对象或方法，直接返回
+                resolve(x);
+            }
+        } catch (e) {
+            if(called)return;
+            called = true;
+            reject(e);
         }
-    } catch (e) {
-        if (called) return;
-        called = true;
-        reject(e);
+    } else {
+        // x 为普通的值，直接返回
+        resolve(x);
     }
 }
 
@@ -240,15 +267,90 @@ Promise.allSettled = function (promises) {
     })
 }
 
+/**
+ * Promise.any 方法
+ * @returns {Promise<object>}
+ * @param promises<iterable>: 一个promise的iterable类型输入
+ */
+Promise.any = function (promises) {
+    return new Promise((resolve, reject) => {
+        // 如果传入的参数是一个空的可迭代对象，则返回一个 已失败（already rejected） 状态的 Promise
+        if (!promises.length) reject();
+        // 如果传入的参数不包含任何 promise，则返回一个 异步完成 （asynchronously resolved）的 Promise。
+        if (typeof promises[Symbol.iterator] !== 'function' ||
+            promises === null ||
+            typeof promises === 'string') {
+            resolve()
+        }
 
-const p1 = new Promise((resolve, reject) => {
-    resolve(1)
-});
-const p2 = new Promise((resolve, reject) => {
-    reject(2)
-});
-const p3 = new Promise((resolve, reject) => {
-    resolve(3)
-})
+        let i = 0;
+        // 遍历promises
+        for (const promise of promises) {
+            promise.then(res => {
+                i++;
+                resolve(res);
+            }, err => {
+                i++;
+                if (i === promises.length) {
+                    reject(err);
+                }
+            })
+        }
+    })
+}
 
-const p = Promise.all([]).then(res => console.log(res), e => console.log(e));
+/**
+ * Promise.race 方法
+ * @returns {Promise<object>}
+ * @param promises<iterable>: 一个promise的iterable类型输入
+ */
+Promise.race = function (promises) {
+    return new Promise((resolve, reject) => {
+        for (const promise of promises) {
+            promise.then(resolve, reject)
+        }
+    })
+}
+
+/**
+ * Promise.reject 方法
+ * @returns {Promise<object>}
+ * @param val<any>
+ */
+Promise.reject = function (val) {
+    return new Promise(reject => reject(val))
+}
+
+/**
+ * Promise.resolve 方法
+ * @returns {Promise<object>}
+ * @param val<any>
+ */
+Promise.resolve = function (val) {
+    return new Promise(resolve => resolve(val))
+}
+
+
+
+
+new Promise((resolve, reject) => {
+    setTimeout(() => resolve('err'))
+}).then(res => {
+    console.log(res);
+}).catch(e => {
+    console.log(e);
+}).finally(() => {
+    console.log(123);
+});
+
+
+// 测试
+Promise.defer = Promise.deferred = function () {
+    let dfd = {}
+    dfd.promise = new Promise((resolve,reject)=>{
+        dfd.resolve = resolve;
+        dfd.reject = reject;
+    });
+    return dfd;
+}
+module.exports = Promise;

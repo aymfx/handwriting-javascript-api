@@ -259,13 +259,13 @@ class Promise {
      */
     then(onFulfilled, onRejected) {
         // 返回一个新的Promise实例
-        return new Promise((resolve, reject) => {
+        const newPromise = new Promise((resolve, reject) => {
 
             if (this.state === 'fulfilled') {
                 const x = onFulfilled(this.value)
 
                 // 对返回值进行处理 
-                resolvePromise(x, resolve, reject);
+                resolvePromise(newPromise, x, resolve, reject);
             }
 
             if (this.state === 'rejected') {
@@ -280,16 +280,18 @@ class Promise {
                     const x = onFulfilled(this.value);
 
                     // 对返回值进行处理 
-                    resolvePromise(x, resolve, reject);
+                    resolvePromise(newPromise, x, resolve, reject);
                 })
                 this.onRejectedCallbacks.push(() => {
                     const x = onRejected(this.reason);
 
                     // 对返回值进行处理 
-                    resolvePromise(x, resolve, reject);
+                    resolvePromise(newPromise, x, resolve, reject);
                 })
             }
         });
+      
+      	return newPromise;
     }
 }
 
@@ -304,47 +306,68 @@ function resolvePromise() {}
 
 然后我们处理返回值后，需要利用`newPromise`的`resolve`和`reject`方法将结果返回。
 
-因此，`resolvePromise`函数需要3个参数，即`x`、`resolve`和`reject`。
+这里我们还需要注意一个地方，就是`x`等于`newPromise`的话，这时会造成循环引用，导致死循环。
+
+```javascript
+let p = new Promise(resolve => {
+  resolve(0);
+});
+const p2 = p.then(data => {
+  // 循环引用，自己等待自己完成，导致死循环
+  return p2;
+})
+```
+
+因此，`resolvePromise`函数需要4个参数，即`newPromise`，`x`、`resolve`和`reject`。
 
 所以我们来实现一下`resolvePromise`函数：
 ```javascript
 /**
  * resolvePromise 方法
+ * @param newPromise<object>: 新的Promise实例
  * @param x<any>: 上一个then()的返回值
  * @param resolve<function>：Promise实例的resolve方法
  * @param reject<function>：Promise实例的reject方法
  */
-function resolvePromise(x, resolve, reject) {
+function resolvePromise(newPromise, x, resolve, reject) {
+    // 循环引用报错
+    if(x === newPromise){
+        // reject报错
+        return reject(new TypeError('Chaining cycle detected for promise'));
+    }
     // 防止多次调用
     let called;
-    try {
-        if( x instanceof Promise){   // x 为Promise实例
-            // 使用call执行then()，call的第一个参数是this，后续即then()的参数，即第二个是成功的回调方法，第三个为失败的回调函数
-            x.then.call(
-                x,
-                res => {
+    if (x != null && (typeof x === 'object' || typeof x === 'function')) {
+        try {
+            let then = x.then;
+            // x 为Promise实例
+            if (typeof then === 'function') {
+                // 使用call执行then()，call的第一个参数是this，后续即then()的参数，即第二个是成功的回调方法，第三个为失败的回调函数
+                then.call(x, y => {
                     // 成功和失败只能调用一个
-                    if (called) return;
+                    if(called)return;
                     called = true;
                     // resolve 的结果依旧是promise实例，那就继续解析
-                    resolvePromise(res, resolve, reject);
-                },
-                err => {
-                    console.log(err);
+                    resolvePromise(newPromise, y, resolve, reject);
+                }, err => {
                     // 成功和失败只能调用一个
-                    if (called) return;
+                    if(called)return;
                     called = true;
                     // 失败了就直接返回reject报错
                     reject(err);
                 })
-        }else {
-            // x 为普通的对象或方法，直接返回
-            resolve(x);
+            } else {
+                // x 为普通的对象或方法，直接返回
+                resolve(x);
+            }
+        } catch (e) {
+            if(called)return;
+            called = true;
+            reject(e);
         }
-    } catch (e) {
-        if (called) return;
-        called = true;
-        reject(e);
+    } else {
+        // x 为普通的值，直接返回
+        resolve(x);
     }
 }
 ```
@@ -441,10 +464,6 @@ class Promise {
 }
 ```
 
-## `catch`方法
-
-
-
 ## 实现`Promise`的其他方法
 
 ### `Promise.all()`
@@ -528,4 +547,160 @@ Promise.allSettled = function (promises) {
 ```
 
 ### `Promise.any()`
+
+`Promise.any()`跟`Promise.all()`和`Promise.allSettled()一样，同样是接收一个`promise`的`iterable`类型的输入。但只要其中的一个`promise`成功，就返回那个已经成功的`promise`，但如果没有一个`promise`成功，就返回一个失败的`promise`。
+
+```javascript
+/**
+ * Promise.any 方法
+ * @returns {Promise<object>}
+ * @param promises<iterable>: 一个promise的iterable类型输入
+ */
+Promise.any = function (promises) {
+    return new Promise((resolve, reject) => {
+        // 如果传入的参数是一个空的可迭代对象，则返回一个 已失败（already rejected） 状态的 Promise
+        if (!promises.length) reject();
+        // 如果传入的参数不包含任何 promise，则返回一个 异步完成 （asynchronously resolved）的 Promise。
+        if (typeof promises[Symbol.iterator] !== 'function' ||
+            promises === null ||
+            typeof promises === 'string') {
+            resolve()
+        }
+
+        let i = 0;
+        // 遍历promises
+        for (const promise of promises) {
+            promise.then(res => {
+                i++;
+                resolve(res);
+            }, err => {
+                i++;
+                if (i === promises.length) {
+                    reject(err);
+                }
+            })
+        }
+    })
+}
+```
+
+### `Promise.race()`
+
+`Promise.race()`，同样是接收一个`promise`的`iterable`类型的输入。一旦迭代器中的某个`promise`完成了，不管是成功还是失败，就会返回这个`promise`。
+
+```javascript
+/**
+ * Promise.race 方法
+ * @returns {Promise<object>}
+ * @param promises<iterable>: 一个promise的iterable类型输入
+ */
+Promise.race = function (promises) {
+    return new Promise((resolve, reject) => {
+        for (const promise of promises) {
+            promise.then(resolve, reject)
+        }
+    })
+}
+```
+
+### `Promise.reject()`和`Promise.resolve()`
+
+`Promise.reject()`方法返回一个带有拒绝原因的`Promise`对象；`Promise.resolve()`方法返回一个以定值解析后的`Promise`对象。
+
+```javascript
+/**
+ * Promise.reject 方法
+ * @returns {Promise<object>}
+ * @param val<any>
+ */
+Promise.reject = function (val) {
+    return new Promise(reject => reject(val))
+}
+
+/**
+ * Promise.resolve 方法
+ * @returns {Promise<object>}
+ * @param val<any>
+ */
+Promise.resolve = function (val) {
+    return new Promise(resolve => resolve(val))
+}
+```
+
+## `catch()`和`finally()`
+
+`catch()`方法是用来处理失败的情况，它传入一个处理函数，然后返回一个`promise`实例。实际上它是`then()`的语法糖，只接受`rejected`态的数据。
+
+`finally()`是在`promise`结束时，无论结果是`fufilled`还是`rejected`，都会执行指定的回调函数。同样也返回一个`promise`实例。
+
+```javascript
+class Promise {
+   	constructor(executor) { ... }
+
+    then(onFulfilled, onRejected) { ... }
+
+    /**
+     * catch 方法
+     * @returns {Promise<object>}
+     * @param callback<function>: 处理函数
+     */
+    catch(callback) {
+        return this.then(null, callback);
+    }
+
+    /**
+     * finally 方法
+     * @returns {Promise<object>}
+     * @param callback<function>: 处理函数
+     */
+    finally(callback) {
+        return this.then(res => {
+            return Promise.resolve(callback()).then(() => res)
+        }, err => {
+            return Promise.reject(callback()).then(() => {
+                throw err
+            })
+        })
+    }
+}
+```
+
+## Promise/A+测试
+
+> `Promise/A+`规范: https://github.com/promises-aplus/promises-spec
+>
+> `Promise/A+`测试工具: https://github.com/promises-aplus/promises-tests
+
+安装`promises-aplus-tests`插件。
+
+```powershell
+yarn add promises-aplus-tests
+```
+
+在`Promise.js`后面插入下列代码。
+
+```javascript
+// 测试
+Promise.defer = Promise.deferred = function () {
+    let dfd = {}
+    dfd.promise = new Promise((resolve,reject)=>{
+        dfd.resolve = resolve;
+        dfd.reject = reject;
+    });
+    return dfd;
+}
+module.exports = Promise;
+```
+
+然后输入命令行进行测试。
+
+```shell
+promises-aplus-tests Promise.js
+```
+
+结果：
+
+```powershell
+872 passing (18s)
+```
 

@@ -20,7 +20,6 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="bd6f26e0-b8e7-4586-9dbb-4a6b086962a3" name="Default Changelist" comment="">
-      <change afterPath="$PROJECT_DIR$/test.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/Promise.js" beforeDir="false" afterPath="$PROJECT_DIR$/Promise.js" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
@@ -71,7 +70,7 @@
       <option name="number" value="Default" />
       <option name="presentableId" value="Default" />
       <updated>1618453471743</updated>
-      <workItem from="1618453473335" duration="33144000" />
+      <workItem from="1618453473335" duration="37781000" />
     </task>
     <servers />
   </component>
@@ -91,27 +90,17 @@
   </component>
   <component name="VcsManagerConfiguration">
     <MESSAGE value="初步实现promise" />
+    <MESSAGE value="完成promise基本功能" />
   </component>
   <component name="WindowStateProjectService">
-    <state x="-267" y="-620" key="Git.Rebase.Log.Action.NewCommitMessage.Dialog" timestamp="1618470586957">
-      <screen x="-1069" y="-1080" width="1920" height="1080" />
+    <state x="-241" y="-606" key="Git.Rebase.Log.Action.NewCommitMessage.Dialog" timestamp="1618628501476">
+      <screen x="-1043" y="-1055" width="1920" height="1055" />
     </state>
     <state x="-267" y="-620" key="Git.Rebase.Log.Action.NewCommitMessage.Dialog/0.0.1680.1050/851.-1080.1920.1080/-1069.-1080.1920.1080@-1069.-1080.1920.1080" timestamp="1618470586957" />
+    <state x="-241" y="-606" key="Git.Rebase.Log.Action.NewCommitMessage.Dialog/0.25.1680.974/-1043.-1055.1920.1055@-1043.-1055.1920.1055" timestamp="1618628501476" />
     <state x="-898" y="-821" width="670" height="676" key="search.everywhere.popup" timestamp="1618625874443">
       <screen x="-1043" y="-1055" width="1920" height="1055" />
     </state>
     <state x="-898" y="-821" width="670" height="676" key="search.everywhere.popup/0.25.1680.974/-1043.-1055.1920.1055@-1043.-1055.1920.1055" timestamp="1618625874443" />
-  </component>
-  <component name="XDebuggerManager">
-    <breakpoint-manager>
-      <breakpoints>
-        <line-breakpoint enabled="true" type="javascript">
-          <url>file://$PROJECT_DIR$/Promise.js</url>
-          <line>65</line>
-          <properties lambdaOrdinal="-1" />
-          <option name="timeStamp" value="2" />
-        </line-breakpoint>
-      </breakpoints>
-    </breakpoint-manager>
   </component>
 </project>

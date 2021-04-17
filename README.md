@@ -1,5 +1,5 @@
-# 实现 Promise
-## Promise的声明
+# 实现 `Promise`
+## `Promise`的声明
 当我们使用`Promise`的时候，通常都是`new Promise((resolve, reject) => {})`。
 
 因此我们可以看出：
@@ -92,7 +92,7 @@ class Promise {
 }
 ```
 
-## then方法
+## `then`方法
 `Promise`有一个`then`方法，而该方法中有两个参数：`onFulfilled`和`onRejected`：
 - 这两个参数都是一个函数，且会返回一个结果值；
 - 当状态为`fulfilled`，只执行`onFulfilled`，传入`this.value`；
@@ -106,7 +106,6 @@ class Promise {
 
     /**
      * then 方法
-     * @returns {Promise<object>}
      * @param onFulfilled<function>: 状态为fulfilled时调用
      * @param onRejected<function>: 状态为rejected时调用
      */
@@ -131,3 +130,402 @@ class Promise {
     }
 }
 ```
+
+## 异步实现
+`Promise`实际上一个异步操作：
+
+- `resolve()`是在`setTimeout`内执行的；
+- 当执行`then()`函数时，如果状态是`pending`时，我们需要等待状态结束后，才继续执行，因此此时我们需要将`then()`的两个参数`onFulfilled`和`onRejected`存起来；
+- 因为一个`Promise`实例可以调用多次`then()`，因此我们需要将`onFulfilled`和`onRejected`各种用数组存起来。
+
+因此我们可以借着完善代码：
+
+```javascript
+class Promise {
+    /**
+     * 构造器
+     * @returns {Promise<object>}
+     * @param executor<function>: executor有两个参数：resolve和reject
+     */
+    constructor(executor) {
+        this.state = 'pending';
+        this.value = undefined;
+        this.reason = undefined;
+        // 存储onFulfilled的数组
+        this.onResolvedCallbacks = [];
+        // 存储onRejected的数组
+        this.onRejectedCallbacks = [];
+
+        const resolve = (value) => {
+            if (this.state === 'pending') {
+                this.state = 'fulfilled';
+                this.value = value;
+                // 一旦resolve执行，调用onResolvedCallbacks数组的函数
+                this.onResolvedCallbacks.forEach(fn => fn());
+            }
+        };
+
+        const reject = (reason) => {
+            if (this.state === 'pending') {
+                this.state = 'rejected';
+                this.reason = reason;
+                // 一旦reject执行，调用onRejectedCallbacks数组的函数
+                this.onRejectedCallbacks.forEach(fn=>fn());
+            }
+        };
+
+        try {
+            executor(resolve, reject);
+        } catch (e) {
+            reject(e);
+        }
+    }
+
+    then(onFulfilled, onRejected) {
+        if (this.state === 'fulfilled') {
+            onFulfilled(this.value)
+        }
+
+  
+        if (this.state === 'rejected') {
+            onRejected(this.reason)
+        }
+
+        // 状态为pending的时候，将onFulfilled、onRejected存入数组
+        if (this.state === 'pending') {
+            this.onResolvedCallbacks.push(() => {
+                onFulfilled(this.value)
+            })
+            this.onRejectedCallbacks.push(() => {
+                onRejected(this.reason)
+            })
+        }
+    }
+}
+```
+
+## 实现链式调用
+我们常常会像下面代码一样使用`Promise`：
+```javascript
+new Promise()
+    .then()
+    .then()
+    .then()
+```
+
+这种方法叫做**链式调用**，通常是用来解决回调地狱（`Callback Hell`）的，就如下的代码：
+```javascript
+fs.readdir(source, function (err, files) {
+  if (err) {
+    console.log('Error finding files: ' + err)
+  } else {
+    files.forEach(function (filename, fileIndex) {
+      console.log(filename)
+      gm(source + filename).size(function (err, values) {
+        if (err) {
+          console.log('Error identifying file size: ' + err)
+        } else {
+          console.log(filename + ' : ' + values)
+          aspect = (values.width / values.height)
+          widths.forEach(function (width, widthIndex) {
+            height = Math.round(width / aspect)
+            console.log('resizing ' + filename + 'to ' + height + 'x' + height)
+            this.resize(width, height).write(dest + 'w' + width + '_' + filename, function(err) {
+              if (err) console.log('Error writing file: ' + err)
+            })
+          }.bind(this))
+        }
+      })
+    })
+  }
+})
+```
+为了实现链式调用，我们需要满足一下几点：
+- 我们需要在`then()`返回一个新的`Promise`实例；
+- 如果上一个`then()`返回了一个值，则这个值就是`onFulfilled()`或者`onRejected()`的值，我们需要把这个值传递到下一个`then()`中。
+
+而对于上一个`then()`的返回值，我们需要对齐进行一定的处理，因此封装一个`resolvePromise()`的方法去进行判断处理；
+
+接下来我们对`then()`方法进行修改：
+```javascript
+class Promise {
+    constructor(executor) { ... }
+
+    /**
+     * then 方法
+     * @returns {Promise<object>}
+     * @param onFulfilled<function>: 状态为fulfilled时调用
+     * @param onRejected<function>: 状态为rejected时调用
+     */
+    then(onFulfilled, onRejected) {
+        // 返回一个新的Promise实例
+        return new Promise((resolve, reject) => {
+
+            if (this.state === 'fulfilled') {
+                const x = onFulfilled(this.value)
+
+                // 对返回值进行处理 
+                resolvePromise(x, resolve, reject);
+            }
+
+            if (this.state === 'rejected') {
+                const x = onRejected(this.reason);
+
+                // 对返回值进行处理 
+                resolvePromise(x, resolve, reject);
+            }
+
+            if (this.state === 'pending') {
+                this.onResolvedCallbacks.push(() => {
+                    const x = onFulfilled(this.value);
+
+                    // 对返回值进行处理 
+                    resolvePromise(x, resolve, reject);
+                })
+                this.onRejectedCallbacks.push(() => {
+                    const x = onRejected(this.reason);
+
+                    // 对返回值进行处理 
+                    resolvePromise(x, resolve, reject);
+                })
+            }
+        });
+    }
+}
+
+function resolvePromise() {}
+```
+
+### 完成`resolvePromise`函数
+对于上一个`then()`的返回值，我们用`x`变量存起来，然后需要对它进行一个处理：
+- 判断`x`是不是`Promise`实例；
+  - 如果是`Promise`实例，则取它的结果，作为新的`Promise`实例成功的结果；
+  - 如果是普通值，直接作为`Promise`成功的结果；
+
+然后我们处理返回值后，需要利用`newPromise`的`resolve`和`reject`方法将结果返回。
+
+因此，`resolvePromise`函数需要3个参数，即`x`、`resolve`和`reject`。
+
+所以我们来实现一下`resolvePromise`函数：
+```javascript
+/**
+ * resolvePromise 方法
+ * @param x<any>: 上一个then()的返回值
+ * @param resolve<function>：Promise实例的resolve方法
+ * @param reject<function>：Promise实例的reject方法
+ */
+function resolvePromise(x, resolve, reject) {
+    // 防止多次调用
+    let called;
+    try {
+        if( x instanceof Promise){   // x 为Promise实例
+            // 使用call执行then()，call的第一个参数是this，后续即then()的参数，即第二个是成功的回调方法，第三个为失败的回调函数
+            x.then.call(
+                x,
+                res => {
+                    // 成功和失败只能调用一个
+                    if (called) return;
+                    called = true;
+                    // resolve 的结果依旧是promise实例，那就继续解析
+                    resolvePromise(res, resolve, reject);
+                },
+                err => {
+                    console.log(err);
+                    // 成功和失败只能调用一个
+                    if (called) return;
+                    called = true;
+                    // 失败了就直接返回reject报错
+                    reject(err);
+                })
+        }else {
+            // x 为普通的对象或方法，直接返回
+            resolve(x);
+        }
+    } catch (e) {
+        if (called) return;
+        called = true;
+        reject(e);
+    }
+}
+```
+
+## `onFulfilled`和`onRejected`
+
+关于`then()`的两个参数——`onFulfilled`和`onRejected`：
+
+- 它们都是可选参数，而且它们都是函数，如果不是函数的话，就会被忽略掉；
+  - 如果`onFulfilled`不是一个函数，就将它直接替换成函数`value => value`；
+  - 如果`onRejected`不是一个函数，就将它直接替换成函数`err => {throw err}`;
+
+```javascript
+class Promise {
+    constructor(executor) { ... }
+
+    then(onFulfilled, onRejected) {
+        // onFulfilled如果不是函数，就忽略onFulfilled，直接返回value
+        onFulfilled = typeof onFulfilled === 'function' ? onFulfilled : value => value;
+        // onRejected如果不是函数，就忽略onRejected，直接抛出错误
+        onRejected = typeof onRejected === 'function' ? onRejected : err => { throw err };
+        
+      ...
+    }
+}
+```
+
+其次，`onFulfilled`和`onRejected`是不能同步被调用的，必须异步调用。因此我们就用`setTimeout`解决一步问题。
+
+```javascript
+class Promise {
+    constructor(executor) { ... }
+
+    then(onFulfilled, onRejected) {
+        // onFulfilled如果不是函数，就忽略onFulfilled，直接返回value
+        onFulfilled = typeof onFulfilled === 'function' ? onFulfilled : value => value;
+        // onRejected如果不是函数，就忽略onRejected，直接抛出错误
+        onRejected = typeof onRejected === 'function' ? onRejected : err => {
+            throw err
+        };
+
+        return new Promise((resolve, reject) => {
+            if (this.state === 'fulfilled') {
+                // 异步调用
+                setTimeout(() => {
+                    try {
+                        const x = onFulfilled(this.value)
+                        resolvePromise(x, resolve, reject);
+                    }catch (e){
+                        reject(e)
+                    }
+                })
+            }
+
+            if (this.state === 'rejected') {
+                // 异步调用
+                setTimeout(() => {
+                    try{
+                        const x = onRejected(this.reason);
+
+                        resolvePromise(x, resolve, reject);
+                    }catch (e){
+                        reject(e)
+                    }
+                })
+            }
+          
+            if (this.state === 'pending') {
+                this.onResolvedCallbacks.push(() => {
+                  // 异步调用
+                    setTimeout(() => {
+                        try {
+                            const x = onFulfilled(this.value);
+                            resolvePromise(x, resolve, reject);
+                        }catch (e){
+                            reject(e)
+                        }
+                    })
+                })
+                this.onRejectedCallbacks.push(() => {
+                  // 异步调用
+                    setTimeout(() => {
+                        try {
+                            const x = onRejected(this.reason);
+                            resolvePromise(x, resolve, reject);
+                        }catch (e){
+                            reject(e)
+                        }
+                    })
+                })
+            }
+        });
+    }
+}
+```
+
+## `catch`方法
+
+
+
+## 实现`Promise`的其他方法
+
+### `Promise.all()`
+
+`Promise.all()`方法接收一个`promise`的`iterable`类型的输入，包括`Array`、`Map`、`Set`。然后返回一个`Promise`实例，该实例回调返回的结果是一个数组，包含输入所有`promise`的回调结果。
+
+但只要任何一个输入的`promise`的`reject`回调执行或者输入不合法的`promise`，就会立马抛出错误。
+
+```javascript
+/**
+ * Promise.all 方法
+ * @returns {Promise<object>}
+ * @param promises<iterable>: 一个promise的iterable类型输入
+ */
+Promise.all = function (promises) {
+    let arr = [];
+
+    return new Promise((resolve, reject) => {
+       if (!promises.length) resolve([]);
+        // 遍历promises
+        for(const promise of promises) {
+            promise.then(res => {
+                arr.push(res);
+                if(arr.length === promises.length){
+                    resolve(arr);
+                }
+            }, reject)
+        }
+    })
+}
+```
+
+### `Promise.allSettled()`
+
+`Promise.allSettled()`其实跟`Promise.all()`很像，同样是接收一个`promise`的`iterable`类型的输入，但返回的是一个给定的`promise`已经完成后的`promise`，并带有一个对象数组，每个对象标识着对应的`promise`结果。
+
+```javascript
+const promise1 = Promise.resolve(3);
+const promise2 = new Promise((resolve, reject) => setTimeout(reject, 100, 'foo'));
+const promises = [promise1, promise2];
+
+Promise.allSettled(promises).
+  then((results) => console.log(results));
+// > Array [Object { status: "fulfilled", value: 3 }, Object { status: "rejected", reason: "foo" }]
+```
+
+实现：
+
+```javascript
+/**
+ * Promise.allSettled 方法
+ * @returns {Promise<object>}
+ * @param promises<iterable>: 一个promise的iterable类型输入
+ */
+Promise.allSettled = function (promises) {
+    let arr = [];
+
+    return new Promise((resolve, reject) => {
+        try {
+            const processData = (data) => {
+                arr.push(data);
+                if(arr.length === promises.length){
+                    resolve(arr);
+                }
+            }
+
+             if (!promises.length) resolve([]);
+            // 遍历promises
+            for(const promise of promises) {
+                promise.then(res => {
+                    processData({state:'fulfilled', value: res})
+                }, err => {
+                    processData({state:'rejected', reason: err})
+                })
+            }
+        }catch (e){
+            reject(e)
+        }
+    })
+}
+```
+
+### `Promise.any()`
+
